@@ -1,6 +1,7 @@
 import sys
 import os
 import requests
+from urllib.parse import urlparse
 from PyQt5.QtCore import (
     QUrl, Qt, QStandardPaths, QSize, QSettings, QTimer,
     QFile, QSaveFile, QPoint, QEvent
@@ -10,10 +11,10 @@ from PyQt5.QtWidgets import (
     QLineEdit, QDockWidget, QListWidget, QMessageBox, QMenu,
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QDialog, QComboBox, QListWidgetItem, QStyle, QFileDialog,
-    QProgressBar, QToolButton, QGraphicsOpacityEffect
+    QProgressBar, QToolButton, QGraphicsOpacityEffect, QInputDialog
 )
 from PyQt5.QtWebEngineWidgets import (
-    QWebEngineView, QWebEngineDownloadItem, QWebEngineProfile, QWebEnginePage
+    QWebEngineView, QWebEngineDownloadItem, QWebEngineProfile, QWebEnginePage, QWebEngineSettings
 )
 from PyQt5.QtGui import (
     QIcon, QKeySequence, QDesktopServices, QFont, QPixmap,
@@ -70,6 +71,15 @@ DARK_STYLE = """
     }
 """
 
+DARK_STYLE_CSS = """
+html {
+    background-color: #1a1a1a !important;
+    filter: invert(1) hue-rotate(180deg) contrast(0.9);
+}
+img, video, iframe {
+    filter: invert(1) hue-rotate(180deg) contrast(0.9);
+}
+"""
 
 # ------------------------- Persistent Storage -------------------------
 class PersistentListWidget(QListWidget):
@@ -80,7 +90,6 @@ class PersistentListWidget(QListWidget):
 
     def load_items(self):
         self.clear()
-        # Ensure we always get a list, even if settings return None
         items = SETTINGS.value(self.settings_key, []) or []
         for item in items:
             self.addItem(item)
@@ -100,7 +109,7 @@ class AdBlockerInterceptor(QWebEngineUrlRequestInterceptor):
         try:
             with open("blocklist.txt", "r") as f:
                 self.blocked_domains = {
-                    line.strip() for line in f
+                    line.strip() for line in f 
                     if line.strip() and not line.startswith('#')
                 }
         except FileNotFoundError:
@@ -121,8 +130,10 @@ class AdBlockerInterceptor(QWebEngineUrlRequestInterceptor):
     def interceptRequest(self, info):
         host = info.requestUrl().host()
         resource_type = info.resourceType()
-
-        # Allow media resources
+        
+        if host and ('localhost' in host or host.endswith('.local')):
+            return
+            
         if resource_type in [
             QWebEngineUrlRequestInfo.ResourceTypeMedia,
             QWebEngineUrlRequestInfo.ResourceTypePluginResource
@@ -131,7 +142,6 @@ class AdBlockerInterceptor(QWebEngineUrlRequestInterceptor):
 
         if any(domain in host for domain in self.blocked_domains):
             info.block(True)
-
 
 # ------------------------- Settings Dialog -------------------------
 class SettingsDialog(QDialog):
@@ -202,12 +212,51 @@ class SettingsDialog(QDialog):
         self.parent().apply_theme(self.theme_combo.currentText())
         self.accept()
 
+# ------------------------- Enhanced Web Page -------------------------
+class CustomWebPage(QWebEnginePage):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.loadFinished.connect(self.handle_load_finished)
+
+    def handle_load_finished(self, ok):
+        if not ok:
+            self.show_error_page()
+
+    def show_error_page(self):
+        error_html = """
+        <html>
+            <body style="background: #f0f0f0; text-align: center; padding: 50px;">
+                <h1 style="color: #d32f2f;">⚠️ Connection Error</h1>
+                <p>Unable to reach this website</p>
+                <p>Possible reasons:</p>
+                <ul style="list-style: none; padding: 0;">
+                    <li>Internet connection lost</li>
+                    <li>Website server is down</li>
+                    <li>SSL certificate error</li>
+                </ul>
+                <button onclick="window.history.back()" 
+                        style="padding: 10px 20px; background: #2196F3; color: white; border: none; border-radius: 4px;">
+                    Go Back
+                </button>
+            </body>
+        </html>
+        """
+        self.setHtml(error_html, QUrl("about:error"))
+
+    def certificateError(self, error):
+        reply = QMessageBox.question(
+            self.view().window(),
+            "SSL Certificate Error",
+            f"This site's security certificate is not trusted.\n\n{error.description()}\n\nProceed anyway?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        return reply == QMessageBox.Yes
 
 # ------------------------- Downloads Manager -------------------------
 class DownloadsManager(QDockWidget):
     def __init__(self, parent=None):
         super().__init__("Downloads", parent)
-        self.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
+        self.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
         self.downloads = []
 
         widget = QWidget()
@@ -239,25 +288,12 @@ class DownloadsManager(QDockWidget):
         self.downloads_list.addItem(item)
         self.downloads_list.setItemWidget(item, widget)
 
-class CustomWebPage(QWebEnginePage):
-    def javaScriptConsoleMessage(self, level, message, line, source):
-        # Filter out CSP prefetch warnings
-        if any(msg in message for msg in [
-            "Content Security Policy",
-            "prefetch-src",
-            "wasm-unsafe-eval",
-            "Refused to prefetch"
-        ]):
-            return
-        super().javaScriptConsoleMessage(level, message, line, source)
-
 # ------------------------- Main Window -------------------------
 class MainWindow(QMainWindow):
     def __init__(self):
         QWebEngineProfile.defaultProfile().setHttpCacheType(QWebEngineProfile.NoCache)
         QWebEngineProfile.defaultProfile().setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
-        os.environ[
-            'QTWEBENGINE_CHROMIUM_FLAGS'] = '--ignore-certificate-errors --enable-features=AllowInsecureLocalhost'
+        os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--ignore-certificate-errors --enable-features=AllowInsecureLocalhost'
         super().__init__()
         self.setWindowTitle("My Own Browser")
         self.setMinimumSize(1024, 768)
@@ -278,6 +314,16 @@ class MainWindow(QMainWindow):
         self.preview_timer = QTimer()
         self.preview_timer.setSingleShot(True)
         self.preview_timer.timeout.connect(self.show_tab_preview)
+
+                # Site dark mode state
+        self.site_dark_mode = False
+        self.dark_style_file = "dark_mode.css"
+        
+        # Enable dev tools
+        QWebEngineSettings.globalSettings().setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+        QWebEngineSettings.globalSettings().setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+        QWebEngineSettings.globalSettings().setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
+        QWebEngineSettings.globalSettings().setAttribute(QWebEngineSettings.WebAttribute.ScrollAnimatorEnabled, True)
 
     def init_ui(self):
         # Tab widget
@@ -306,11 +352,15 @@ class MainWindow(QMainWindow):
             action.triggered.connect(handler)
             self.toolbar.addAction(action)
 
-        # URL Bar
+        # URL Bar and Security Status
         self.url_bar = QLineEdit()
         self.url_bar.setClearButtonEnabled(True)
         self.url_bar.setPlaceholderText("Search or enter address")
         self.toolbar.addWidget(self.url_bar)
+        
+        self.security_status = QLabel()
+        self.security_status.setFixedWidth(120)
+        self.toolbar.addWidget(self.security_status)
 
         # Menu
         self.menu_btn = QToolButton()
@@ -328,12 +378,14 @@ class MainWindow(QMainWindow):
     def init_docks(self):
         # History
         self.history_dock = QDockWidget("History", self)
+        self.history_dock.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable)
         self.history_list = PersistentListWidget("History")
         self.history_dock.setWidget(self.history_list)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.history_dock)
 
         # Bookmarks
         self.bookmarks_dock = QDockWidget("Bookmarks", self)
+        self.bookmarks_dock.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable)
         self.bookmarks_list = PersistentListWidget("Bookmarks")
         self.bookmarks_dock.setWidget(self.bookmarks_list)
         self.addDockWidget(Qt.RightDockWidgetArea, self.bookmarks_dock)
@@ -346,10 +398,6 @@ class MainWindow(QMainWindow):
         self.history_dock.hide()
         self.bookmarks_dock.hide()
         self.downloads_dock.hide()
-
-    def open_github(self):
-        github_url = "https://github.com/Lusan-sapkota"
-        self.add_new_tab(QUrl(github_url), "GitHub - Lusan")
 
     def create_menu(self):
         # New Tab
@@ -368,23 +416,60 @@ class MainWindow(QMainWindow):
         downloads_action.triggered.connect(lambda: self.downloads_dock.setVisible(not self.downloads_dock.isVisible()))
         self.menu.addAction(downloads_action)
 
+        # Page Actions
+        view_source_action = QAction("View Page Source", self)
+        view_source_action.triggered.connect(self.view_page_source)
+        self.menu.addAction(view_source_action)
+
+        save_page_action = QAction("Save Page As...", self)
+        save_page_action.triggered.connect(self.save_page)
+        self.menu.addAction(save_page_action)
+
         # Full Screen
         fullscreen_action = QAction("Toggle Full Screen", self)
         fullscreen_action.setShortcut("F11")
         fullscreen_action.triggered.connect(self.toggle_fullscreen)
         self.menu.addAction(fullscreen_action)
 
+        # Site Dark Mode toggle
+        self.site_dark_action = QAction("Site Dark Mode", self)
+        self.site_dark_action.setCheckable(True)
+        self.site_dark_action.toggled.connect(self.toggle_site_dark_mode)
+        self.menu.addAction(self.site_dark_action)
+
+        # Inspect menu
+        inspect_menu = self.menu.addMenu("Inspect")
+        inspect_element = QAction("Inspect Element", self)
+        inspect_element.setShortcut("Ctrl+Shift+I")
+        inspect_element.triggered.connect(self.show_dev_tools)
+        inspect_menu.addAction(inspect_element)
+
         # Settings
         settings_action = QAction("Settings", self)
         settings_action.triggered.connect(self.open_settings)
         self.menu.addAction(settings_action)
 
-        # github
+        # GitHub
         github_action = QAction(QIcon.fromTheme("applications-internet"), "My GitHub", self)
         github_action.triggered.connect(self.open_github)
         github_action.setShortcut(QKeySequence("Ctrl+G"))
         self.menu.addSeparator()
         self.menu.addAction(github_action)
+
+    def toggle_site_dark_mode(self, checked):
+        self.site_dark_mode = checked
+        if checked:
+            # Create dark mode CSS file
+            with open(self.dark_style_file, "w") as f:
+                f.write(DARK_STYLE_CSS)
+            self.profile.setUserStyleSheetUrl(QUrl.fromLocalFile(os.path.abspath(self.dark_style_file)))
+        else:
+            self.profile.setUserStyleSheetUrl(QUrl())
+
+    def show_dev_tools(self):
+        current_page = self.current_browser().page()
+        current_page.triggerAction(QWebEnginePage.InspectElement)
+
 
     def init_connections(self):
         self.tabs.tabCloseRequested.connect(self.close_tab)
@@ -418,6 +503,54 @@ class MainWindow(QMainWindow):
         browser.page().profile().downloadRequested.connect(self.download_requested)
         browser.page().loadFinished.connect(lambda: self.capture_tab_preview(browser))
 
+        # Context menu
+        browser.setContextMenuPolicy(Qt.CustomContextMenu)
+        browser.customContextMenuRequested.connect(self.show_context_menu)
+
+    def show_context_menu(self, pos):
+        menu = QMenu()
+        
+        # Standard actions
+        back_action = QAction("Back", self)
+        back_action.triggered.connect(self.current_browser().back)
+        menu.addAction(back_action)
+
+        forward_action = QAction("Forward", self)
+        forward_action.triggered.connect(self.current_browser().forward)
+        menu.addAction(forward_action)
+
+        reload_action = QAction("Reload", self)
+        reload_action.triggered.connect(self.current_browser().reload)
+        menu.addAction(reload_action)
+
+        menu.addSeparator()
+
+        # Custom actions
+        view_source_action = QAction("View Page Source", self)
+        view_source_action.triggered.connect(self.view_page_source)
+        menu.addAction(view_source_action)
+
+        save_page_action = QAction("Save Page As...", self)
+        save_page_action.triggered.connect(self.save_page)
+        menu.addAction(save_page_action)
+
+        menu.exec_(self.current_browser().mapToGlobal(pos))
+
+    def view_page_source(self):
+        def callback(content):
+            browser = QWebEngineView()
+            browser.setHtml(content)
+            self.add_new_tab(QUrl("view-source"), "Page Source")
+        self.current_browser().page().toHtml(callback)
+
+    def save_page(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save Page", "", "HTML Files (*.html)")
+        if path:
+            def callback(content):
+                with open(path, 'w') as f:
+                    f.write(content)
+            self.current_browser().page().toHtml(callback)
+
     def capture_tab_preview(self, browser):
         pixmap = QPixmap(browser.size())
         painter = QPainter(pixmap)
@@ -446,34 +579,62 @@ class MainWindow(QMainWindow):
     def toggle_fullscreen(self):
         self.showFullScreen() if not self.isFullScreen() else self.showNormal()
 
-    # Update the navigate_to_url method to handle Bing specifically
     def navigate_to_url(self):
-        url = self.url_bar.text()
-        if not url:
+        raw_input = self.url_bar.text().strip()
+        if not raw_input:
             return
 
-        # Convert search queries for different engines
-        if '.' not in url and '://' not in url:
-            search_engine = SETTINGS.value("SearchEngine", "Google")
-            search_urls = {
-                "Google": f"https://www.google.com/search?q={url}",
-                "DuckDuckGo": f"https://duckduckgo.com/?q={url}",
-                "Bing": f"https://www.bing.com/search?q={url}",
-                "Yahoo": f"https://search.yahoo.com/search?p={url}"
-            }
-            url = search_urls[search_engine]
-
-        # Special handling for Bing
-        if "bing.com" in url:
-            url += "&form=ANNTHB"  # Use basic HTML version
-
-        qurl = QUrl(url)
+        # Check if input is a URL
+        if any(x in raw_input for x in ['.', ':', 'localhost']):
+            parsed = urlparse(raw_input)
+            if not parsed.scheme:
+                if raw_input.startswith('//'):
+                    raw_input = 'http:' + raw_input
+                else:
+                    if 'localhost' in raw_input:
+                        raw_input = f'http://{raw_input}'
+                    else:
+                        raw_input = f'https://{raw_input}'
+            
+            qurl = QUrl(raw_input)
+            if qurl.isValid():
+                self.current_browser().setUrl(qurl)
+                return
+        
+        # If not URL, perform search
+        search_engine = SETTINGS.value("SearchEngine", "Google")
+        search_urls = {
+            "Google": f"https://www.google.com/search?q={raw_input}",
+            "DuckDuckGo": f"https://duckduckgo.com/?q={raw_input}",
+            "Bing": f"https://www.bing.com/search?q={raw_input}",
+            "Yahoo": f"https://search.yahoo.com/search?p={raw_input}"
+        }
+        qurl = QUrl(search_urls[search_engine])
         self.current_browser().setUrl(qurl)
+
+    def update_security_status(self, qurl):
+        scheme = qurl.scheme()
+        host = qurl.host()
+        
+        if scheme == 'https':
+            self.security_status.setText("Secure 🔒")
+            self.security_status.setStyleSheet("color: #4CAF50;")
+        elif scheme == 'http':
+            if host and ('localhost' in host or '127.0.0.1' in host):
+                self.security_status.setText("Local 🏠")
+                self.security_status.setStyleSheet("color: #FF9800;")
+            else:
+                self.security_status.setText("Not Secure 🔓")
+                self.security_status.setStyleSheet("color: #F44336;")
+        else:
+            self.security_status.setText("Unknown ❓")
+            self.security_status.setStyleSheet("color: #9E9E9E;")
 
     def update_url(self, qurl):
         self.url_bar.setText(qurl.toString())
         self.url_bar.setCursorPosition(0)
         self.history_list.addItem(qurl.toString())
+        self.update_security_status(qurl)
 
     def update_tab_title(self, index, title):
         self.tabs.setTabText(index, title[:20] + "..." if len(title) > 20 else title)
@@ -502,6 +663,10 @@ class MainWindow(QMainWindow):
         self.downloads_dock.add_download(download)
         self.downloads_dock.show()
 
+    def open_github(self):
+        github_url = "https://github.com/Lusan-sapkota"
+        self.add_new_tab(QUrl(github_url), "GitHub - Lusan")
+
     def open_settings(self):
         dialog = SettingsDialog(self)
         dialog.exec_()
@@ -510,7 +675,6 @@ class MainWindow(QMainWindow):
         self.history_list.save_items()
         self.bookmarks_list.save_items()
         super().closeEvent(event)
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
