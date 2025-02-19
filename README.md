@@ -72,7 +72,11 @@ source browser-env/bin/activate  # Linux/MacOS
 browser-env\Scripts\activate  # Windows
 
 # Install dependencies
+pip install -r requirements.txt
+# For manual Installation
 pip install PyQt5 PyQtWebEngine requests
+
+# Use pip3 instead of pip if it doesnot work.
 ```
 
 ---
@@ -188,6 +192,9 @@ MyOwnBrowser/
 └── README.md           # Documentation assets
 ```
 
+### Some Known bugs
+Lags on some engines --> temporary fix use google as a deafult engine
+
 ### Contribution Guidelines
 1. Fork repository
 2. Create feature branch
@@ -205,7 +212,3 @@ MIT License - Free for personal and commercial use
 *Documentation version: 1.2 | Last updated: 2024-02-19*  
 *Maintainer: Lusan Sapkota | Contact: [GitHub Profile](https://github.com/Lusan-sapkota)*
 
-This documentation can be saved as `DOCUMENTATION.md` in your project root. For visual completeness, consider adding:
-1. Actual screenshots in the Overview section
-2. Architecture diagram in Developer section
-3. Video tutorial links for complex features
