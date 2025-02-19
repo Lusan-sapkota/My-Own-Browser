@@ -16,7 +16,24 @@
 ## 1. Overview <a name="overview"></a>
 "My Own Browser" is a modern, customizable web browser built with Python and PyQt5. Designed for privacy and efficiency, it combines essential browsing features with advanced customization options.
 
-![Browser Interface Preview](https://via.placeholder.com/800x500.png?text=Browser+Interface+Preview)
+<table>
+  <tr>
+    <td>
+      <img src="https://github.com/user-attachments/assets/4832d7e7-dce8-45d5-9e9f-a4a465376d75" alt="Screenshot 1" width="500">
+    </td>
+    <td>
+      <img src="https://github.com/user-attachments/assets/efb87f5e-a5eb-4838-9ca5-93947a9226e9" alt="Screenshot 2" width="500">
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <img src="https://github.com/user-attachments/assets/aeabe256-e802-4e50-a4dc-66254530e70a" alt="Screenshot 3" width="500">
+    </td>
+    <td>
+      <img src="https://github.com/user-attachments/assets/c00c1762-c73c-48c6-9775-5ae8dced094b" alt="Screenshot 4" width="500">
+    </td>
+  </tr>
+</table>
 
 ---
 
