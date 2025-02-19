@@ -35,6 +35,36 @@
   </tr>
 </table>
 
+## Modes has been added secure, local, not secure and unknown
+<table>
+  <tr>
+    <td>
+      <img src="https://github.com/user-attachments/assets/d49daa39-8bb2-4275-a676-98814de844dd" alt="Screenshot 5" width="500">
+    </td>
+    <td>
+      <img src="https://github.com/user-attachments/assets/4e877563-f882-423b-8644-8a6d87711274" alt="Screenshot 6" width="500">
+    </td>
+  </tr>
+</table>
+
+```bash
+        if scheme == 'https':
+            self.security_status.setText("Secure 🔒")
+            self.security_status.setStyleSheet("color: #4CAF50;")
+        elif scheme == 'http':
+            if host and ('localhost' in host or '127.0.0.1' in host):
+                self.security_status.setText("Local 🏠")
+                self.security_status.setStyleSheet("color: #FF9800;")
+            else:
+                self.security_status.setText("Not Secure 🔓")
+                self.security_status.setStyleSheet("color: #F44336;")
+        else:
+            self.security_status.setText("Unknown ❓")
+            self.security_status.setStyleSheet("color: #9E9E9E;")
+```
+
+---
+
 ---
 
 ## 2. Features <a name="features"></a>
@@ -194,6 +224,12 @@ MyOwnBrowser/
 
 ### Some Known bugs
 Lags on some engines --> temporary fix use google as a deafult engine
+View source page not working --> Working on it
+Inspect Menu not working --> Working on it
+
+### UI improvements
+Icons Improvement will be done shortly
+Downloads tab ui will be changed shortly
 
 ### Contribution Guidelines
 1. Fork repository
