@@ -88,9 +88,8 @@
 
 ## 3. Installation <a name="installation"></a>
 ### Requirements
-- Python 3.7+
-- 500MB Disk Space
-- Modern GPU (WebGL acceleration)
+- Python 3+
+- workable computer where you can run python interpreter
 
 ### Installation Steps
 ```bash
